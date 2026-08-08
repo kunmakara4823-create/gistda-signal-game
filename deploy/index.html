@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>THEOS-2 Interactive Simulation Kit & AIP Dashboard — GISTDA Ground Station</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Space+Mono:wght@400;700&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   DESIGN TOKENS & SYSTEM STYLES
+   ============================================================ */
+:root{
+  --void:#080b12;
+  --panel:#111a29;
+  --panel-2:#16233a;
+  --border:#233350;
+  --green:#39ff9c;
+  --green-dim:#1a7a52;
+  --red:#ff3b54;
+  --red-dim:#7a1a2a;
+  --amber:#ffb454;
+  --cyan:#4fd8ff;
+  --text:#dbe6f2;
+  --text-dim:#5f7590;
+  --font-display:'Orbitron',sans-serif;
+  --font-mono:'Space Mono',monospace;
+  --font-thai:'Sarabun',sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;background:var(--void);color:var(--text);font-family:var(--font-mono);overflow-x:hidden;}
+#app{position:relative;width:100%;min-height:100vh;}
+
+/* CRT / Radar Overlay FX */
+#crt-overlay{position:fixed;inset:0;pointer-events:none;z-index:50;mix-blend-mode:screen;}
+#crt-overlay::before{
+  content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(to bottom, rgba(120,200,255,0.04) 0px, rgba(120,200,255,0.04) 1px, transparent 1px, transparent 3px);
+  animation:scan-drift 9s linear infinite;
+}
+#crt-overlay::after{
+  content:"";position:absolute;inset:0;
+  box-shadow:inset 0 0 160px rgba(0,0,0,0.78), inset 0 0 40px rgba(0,0,0,0.5);
+}
+@keyframes scan-drift{0%{transform:translateY(0)}100%{transform:translateY(3px)}}
+
+.screen{position:absolute;inset:0;display:none;flex-direction:column;min-height:100vh;}
+.screen.active{display:flex;}
+
+/* Topbar Header */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 22px;background:linear-gradient(180deg,var(--panel),var(--void));
+  border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.topbar .station-id{font-family:var(--font-display);font-size:13px;letter-spacing:2px;color:var(--cyan);}
+.topbar .mission-name{font-size:12px;color:var(--text-dim);margin-top:2px;font-family:var(--font-thai);}
+.mode-toggle{display:flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;}
+.mode-toggle button{
+  background:var(--panel);color:var(--text-dim);border:none;padding:8px 16px;font-family:var(--font-thai);
+  font-size:12px;letter-spacing:1px;cursor:pointer;transition:.15s;
+}
+.mode-toggle button.active{background:var(--green-dim);color:var(--green);}
+.mode-toggle button:not(.active):hover{color:var(--text);}
+
+/* Ticker Bar */
+.ticker-wrap{background:var(--panel-2);border-bottom:1px solid var(--border);overflow:hidden;white-space:nowrap;flex-shrink:0;height:26px;}
+.ticker{display:inline-block;padding-left:100%;animation:ticker-scroll 24s linear infinite;font-size:11px;color:var(--amber);line-height:26px;letter-spacing:1px;}
+@keyframes ticker-scroll{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
+
+/* Hazard Alert Banners */
+.hazard-banner{
+  position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  background:rgba(255, 59, 84, 0.9);color:#fff;padding:6px 16px;border-radius:20px;
+  font-family:var(--font-display);font-size:11px;letter-spacing:1px;
+  box-shadow:0 0 15px rgba(255,59,84,0.6);z-index:15;display:none;animation:pulse 0.8s infinite alternate;
+}
+@keyframes pulse{from{opacity:0.7;}to{opacity:1;}}
+
+/* LEVEL SELECT SCREEN */
+#screen-level-select .ls-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px;padding:20px;
+  background:radial-gradient(ellipse at 50% 0%, #0d1626 0%, var(--void) 70%);}
+.ls-title{font-family:var(--font-display);font-size:20px;letter-spacing:2px;color:var(--text);text-align:center;}
+.ls-title span{color:var(--green);}
+.ls-sub{font-size:12.5px;color:var(--text-dim);text-align:center;max-width:680px;margin-top:-14px;font-family:var(--font-thai);line-height:1.6;}
+
+.stations{display:flex;gap:22px;flex-wrap:wrap;justify-content:center;max-width:1020px;}
+.station{
+  width:290px;padding:22px 18px;background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  cursor:pointer;position:relative;transition:.2s;text-align:center;
+}
+.station:not(.locked):hover{border-color:var(--cyan);box-shadow:0 0 26px rgba(79,216,255,0.25),inset 0 0 20px rgba(79,216,255,0.05);transform:translateY(-3px);}
+.station.locked{opacity:.4;cursor:not-allowed;}
+.station .icon{font-size:40px;margin-bottom:8px;}
+.station .s-level{font-family:var(--font-display);font-size:11px;color:var(--cyan);margin-bottom:4px;}
+.station .s-name{font-family:var(--font-display);font-size:13px;letter-spacing:1px;color:var(--text);}
+.station .s-mission{font-size:11px;color:var(--text-dim);margin-top:8px;line-height:1.5;font-family:var(--font-thai);}
+.station .badge{position:absolute;top:10px;right:10px;font-size:10px;padding:3px 8px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim);font-family:var(--font-thai);}
+.station .badge.passed{background:var(--green-dim);color:var(--green);border-color:var(--green);}
+
+/* MISSION SCENE LAYOUT */
+.mission-scene{flex:1;display:flex;padding:20px;gap:20px;align-items:stretch;position:relative;}
+.viewport-col{flex:1;display:flex;flex-direction:column;gap:14px;min-width:0;}
+.viewport-panel{
+  flex:1;background:var(--panel);border:1px solid var(--border);border-radius:8px;position:relative;overflow:hidden;
+  min-height:320px;
+}
+.viewport-panel canvas{display:block;width:100%;height:100%;}
+
+.status-strip{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--panel);border:1px solid var(--border);border-radius:8px;}
+.led{width:11px;height:11px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red);flex-shrink:0;}
+.led.locked{background:var(--green);box-shadow:0 0 10px var(--green);animation:led-pulse 1s infinite;}
+@keyframes led-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.status-text{font-family:var(--font-display);font-size:12px;letter-spacing:1.5px;}
+.status-text.locked{color:var(--green);}
+.status-text.lost{color:var(--red);}
+.hold-bar-wrap{flex:1;height:8px;background:var(--void);border-radius:4px;overflow:hidden;border:1px solid var(--border);}
+.hold-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--green-dim),var(--green));transition:width .1s linear;}
+.mini-stat{font-size:11px;color:var(--text-dim);white-space:nowrap;}
+
+.control-col{width:330px;flex-shrink:0;display:flex;flex-direction:column;gap:14px;}
+.panel-box{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;}
+.panel-box h4{margin:0 0 12px;font-family:var(--font-display);font-size:11px;letter-spacing:2px;color:var(--cyan);}
+.slider-row{margin-bottom:14px;}
+.slider-row:last-child{margin-bottom:0;}
+.slider-row label{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-dim);margin-bottom:6px;font-family:var(--font-thai);}
+.slider-row label b{color:var(--text);font-weight:400;font-family:var(--font-mono);}
+input[type=range]{width:100%;-webkit-appearance:none;height:6px;background:var(--border);border-radius:3px;outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--cyan);cursor:pointer;box-shadow:0 0 8px rgba(79,216,255,.7);}
+
+.band-selector{display:flex;gap:6px;margin-top:6px;}
+.band-btn{flex:1;background:var(--panel-2);border:1px solid var(--border);color:var(--text-dim);padding:8px 4px;font-size:10px;font-family:var(--font-mono);border-radius:4px;cursor:pointer;text-align:center;}
+.band-btn.active{background:var(--green-dim);color:var(--green);border-color:var(--green);font-weight:bold;}
+
+.tune-helper{font-size:11px;color:var(--amber);margin-top:4px;font-family:var(--font-thai);display:flex;justify-content:space-between;}
+.target-band-banner{background:rgba(255,180,84,0.15);border:1px solid var(--amber);color:var(--amber);padding:6px 10px;border-radius:4px;font-size:11px;font-family:var(--font-thai);margin-bottom:12px;text-align:center;}
+
+.hint-box{font-size:11.5px;color:var(--amber);line-height:1.6;border-left:2px solid var(--amber);padding-left:10px;font-family:var(--font-thai);}
+.btn{
+  font-family:var(--font-thai);background:var(--panel-2);border:1px solid var(--border);color:var(--text);
+  padding:11px 14px;border-radius:6px;cursor:pointer;font-size:12px;transition:.15s;width:100%;
+}
+.btn:hover{border-color:var(--cyan);color:var(--cyan);}
+.btn.primary{background:var(--green-dim);border-color:var(--green);color:var(--green);font-weight:bold;}
+.btn.primary:hover{background:var(--green);color:#04140b;}
+.btn-row{display:flex;gap:10px;}
+.btn-row .btn{flex:1;}
+
+.briefing-overlay{position:absolute;inset:0;background:rgba(4,7,12,0.93);display:flex;align-items:center;justify-content:center;z-index:20;padding:15px;}
+.briefing-card{width:540px;max-width:100%;background:var(--panel);border:1px solid var(--cyan);border-radius:8px;padding:24px;box-shadow:0 0 40px rgba(79,216,255,.15);}
+.briefing-card .who{font-family:var(--font-display);font-size:11px;color:var(--amber);letter-spacing:2px;margin-bottom:10px;}
+.briefing-text{font-size:13px;line-height:1.8;min-height:96px;color:var(--text);font-family:var(--font-thai);}
+.briefing-text .cursor{animation:blink 1s infinite;color:var(--green);}
+@keyframes blink{50%{opacity:0}}
+
+/* AIP DASHBOARD & EVALUATION SHEET */
+#screen-evaluation .eval-body{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;
+  background:radial-gradient(ellipse at 50% 0%, #0d1626 0%, var(--void) 70%);}
+.eval-sheet{width:560px;max-width:100%;background:var(--panel);border:1px solid var(--cyan);border-radius:10px;padding:26px;position:relative;overflow:hidden;box-shadow:0 0 30px rgba(79,216,255,0.15);}
+.eval-sheet::before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--green),var(--cyan));}
+.eval-head{text-align:center;margin-bottom:18px;}
+.eval-head .aip-title{font-family:var(--font-display);font-size:14px;letter-spacing:2px;color:var(--cyan);margin-bottom:4px;}
+.eval-head .status-line{font-family:var(--font-display);font-size:18px;letter-spacing:2px;color:var(--green);}
+.eval-head .grade-chip{display:inline-block;margin-top:6px;font-family:var(--font-display);font-size:28px;color:var(--amber);border:2px solid var(--amber);border-radius:8px;padding:2px 18px;}
+
+.aip-box{
+  background:var(--panel-2);border:1px solid var(--amber);border-left:4px solid var(--amber);
+  border-radius:6px;padding:12px 14px;margin-bottom:18px;font-family:var(--font-thai);font-size:12px;line-height:1.6;color:#fff;
+}
+.aip-box b{color:var(--amber);display:block;margin-bottom:4px;font-family:var(--font-display);font-size:11px;letter-spacing:1px;}
+
+.eval-rows{border-top:1px dashed var(--border);border-bottom:1px dashed var(--border);padding:14px 0;margin-bottom:16px;}
+.eval-row{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;color:var(--text-dim);font-family:var(--font-thai);}
+.eval-row b{color:var(--text);font-weight:400;font-family:var(--font-mono);}
+.vcode{text-align:center;font-family:var(--font-display);font-size:12px;letter-spacing:2px;color:var(--green);background:var(--void);border:1px solid var(--border);border-radius:6px;padding:6px;margin-bottom:16px;}
+
+@media (max-width: 820px) {
+  html, body { overflow-y: auto !important; height: auto !important; }
+  .screen { position: relative !important; height: auto !important; min-height: 100vh; display: none; }
+  .screen.active { display: flex; }
+  .mission-scene { flex-direction: column; height: auto !important; padding: 12px; gap: 14px; }
+  .viewport-panel { min-height: 280px; height: 320px; flex: none; }
+  .control-col { width: 100%; flex: none; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="crt-overlay"></div>
+
+  <!-- ============ LEVEL SELECT ============ -->
+  <section id="screen-level-select" class="screen active">
+    <div class="topbar">
+      <div>
+        <div class="station-id">GISTDA // THEOS-2 INTERACTIVE SIMULATION KIT</div>
+        <div class="mission-name" id="ls-mission-name">ศูนย์ปฏิบัติการดาวเทียมศรีราชา — Processing Pipeline (Level 0 ➔ Level 3)</div>
+      </div>
+      <div class="mode-toggle" id="mode-toggle">
+        <button data-mode="tutorial" class="active">โหมดสอน</button>
+        <button data-mode="challenge">CHALLENGE</button>
+      </div>
+    </div>
+    <div class="ls-body">
+      <div class="ls-title">THEOS-2 GROUND STATION <span>SRIRACHA</span></div>
+      <div class="ls-sub">จำลองกระบวนการทำงานจริงของดาวเทียม THEOS-2 ตั้งแต่การรับสัญญาณ Raw Data (Level 0) จนถึงการประมวลผลเป็นข้อมูลสารสนเทศเชิงนโยบาย (AIP Dashboard) ผ่านด่านตามลำดับเพื่อปลดล็อก Pipeline</div>
+      <div class="stations" id="stations"></div>
+    </div>
+  </section>
+
+  <!-- ============ LEVEL 0: RAW DATA INGESTION (ANTENNA TRACKING) ============ -->
+  <section id="screen-level1" class="screen">
+    <div class="topbar">
+      <div>
+        <div class="station-id">🛰️ LEVEL 0 :: RAW DATA INGESTION</div>
+        <div class="mission-name">Mission 1: รับสัญญาณภาพถ่ายน้ำท่วมลุ่มน้ำชี-มูล (THEOS-2 Downlink)</div>
+      </div>
+      <div class="mini-stat" id="l1-mode-tag">โหมดสอน</div>
+    </div>
+    <div class="ticker-wrap"><div class="ticker" id="l1-ticker">SRIRACHA-GS :: THEOS-2 RAW DATA INGESTION :: DOWNLINK PRIORITY HIGH :: TRACK SATELLITE BEFORE LOSS OF SIGNAL :: FLOOD DATA - CHI-MUN BASIN :: OPEN PROXY DATA PIPELINE ::&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div></div>
+    <div class="mission-scene">
+      <div class="hazard-banner" id="l1-hazard">🌧️ RAIN FADE DETECTED! SIGNAL ATTENUATED -40%</div>
+      <div class="briefing-overlay" id="l1-briefing">
+        <div class="briefing-card">
+          <div class="who">หัวหน้าสถานี — ผอ.ศูนย์ศรีราชา (THEOS-2 Operation)</div>
+          <div class="briefing-text" id="l1-briefing-text"><span class="cursor">▌</span></div>
+          <button class="btn primary" style="margin-top:18px;" id="l1-start-btn">เริ่มกระบวนการ LEVEL 0</button>
+        </div>
+      </div>
+      <div class="briefing-overlay" id="l1-pass-transition" style="display:none;">
+        <div class="briefing-card" style="text-align:center;border-color:var(--green);box-shadow:0 0 40px rgba(57,255,156,.2);">
+          <div class="who" style="color:var(--green);">PASS COMPLETE</div>
+          <div class="briefing-text" id="l1-pass-transition-text" style="min-height:auto;"></div>
+        </div>
+      </div>
+      <div class="viewport-col">
+        <div class="viewport-panel">
+          <canvas id="l1-canvas"></canvas>
+        </div>
+        <div class="status-strip">
+          <div class="led" id="l1-led"></div>
+          <div class="status-text lost" id="l1-status-text">SIGNAL DRIFTING</div>
+          <div class="hold-bar-wrap"><div class="hold-bar" id="l1-hold-bar"></div></div>
+          <div class="mini-stat" id="l1-pass">PASS 1/3</div>
+          <div class="mini-stat" id="l1-timer">00:00</div>
+        </div>
+      </div>
+      <div class="control-col">
+        <div class="panel-box">
+          <h4>ANTENNA AZIMUTH & ELEVATION</h4>
+          <div class="slider-row">
+            <label>AZIMUTH <b id="l1-az-val">180°</b></label>
+            <input type="range" id="l1-az" min="0" max="360" value="180">
+          </div>
+          <div class="slider-row">
+            <label>ELEVATION <b id="l1-el-val">45°</b></label>
+            <input type="range" id="l1-el" min="0" max="90" value="45">
+          </div>
+        </div>
+        <div class="panel-box" id="l1-hint-box">
+          <h4>ANTENNA GAIN</h4>
+          <div id="l1-gain-val" style="font-size:26px;color:var(--cyan);font-family:var(--font-display);">0%</div>
+          <div class="hint-box" style="margin-top:10px;">
+            ระวัง! กลุ่มเมฆฝน (Rain Fade) จะเข้ามาบดบังทำให้สัญญาณวูบลง ต้องคุมเสาอากาศให้ตรงจุดสีเหลืองตลอดเวลาเพื่อรักษาความเข้มสัญญาณ
+          </div>
+        </div>
+        <button class="btn" id="l1-back-btn">← กลับหน้า Level Select</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LEVEL 1/2A: RADIOMETRIC & DOPPLER CORRECTION ============ -->
+  <section id="screen-level2" class="screen">
+    <div class="topbar">
+      <div>
+        <div class="station-id">📡 LEVEL 1/2A :: RADIOMETRIC & DOPPLER CORRECTION</div>
+        <div class="mission-name">Mission 2: แก้ไขความถี่ส่าย/พายุสุริยะ สแกนควันไฟป่า PM2.5 จ.เชียงใหม่</div>
+      </div>
+      <div class="mini-stat" id="l2-mode-tag">โหมดสอน</div>
+    </div>
+    <div class="ticker-wrap"><div class="ticker" id="l2-ticker">SRIRACHA-GS :: RADIOMETRIC & DOPPLER CORRECTION :: SOLAR FLARE DRIFT INTERFERENCE :: RESTORED SENSOR PRODUCT 2A :: PM2.5 HOTSPOT DATA ::&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div></div>
+    <div class="mission-scene">
+      <div class="hazard-banner" id="l2-hazard">☀️ SOLAR FLARE ALERT! FREQUENCY DRIFTING CHAOTICALLY</div>
+      <div class="briefing-overlay" id="l2-briefing">
+        <div class="briefing-card">
+          <div class="who">หัวหน้าสถานี — ผอ.ศูนย์ศรีราชา (THEOS-2 Operation)</div>
+          <div class="briefing-text" id="l2-briefing-text"><span class="cursor">▌</span></div>
+          <button class="btn primary" style="margin-top:18px;" id="l2-start-btn">เริ่มกระบวนการ LEVEL 1/2A</button>
+        </div>
+      </div>
+      <div class="briefing-overlay" id="l2-pass-transition" style="display:none;">
+        <div class="briefing-card" style="text-align:center;border-color:var(--green);box-shadow:0 0 40px rgba(57,255,156,.2);">
+          <div class="who" style="color:var(--green);">PASS COMPLETE</div>
+          <div class="briefing-text" id="l2-pass-transition-text" style="min-height:auto;"></div>
+        </div>
+      </div>
+      <div class="viewport-col">
+        <div class="viewport-panel">
+          <canvas id="l2-canvas"></canvas>
+        </div>
+        <div class="status-strip">
+          <div class="led" id="l2-led"></div>
+          <div class="status-text lost" id="l2-status-text">SIGNAL DRIFTING</div>
+          <div class="hold-bar-wrap"><div class="hold-bar" id="l2-hold-bar"></div></div>
+          <div class="mini-stat" id="l2-pass">PASS 1/3</div>
+          <div class="mini-stat" id="l2-combo" style="color:var(--amber);">PEAK 0%</div>
+          <div class="mini-stat" id="l2-timer">00:00</div>
+        </div>
+      </div>
+      <div class="control-col">
+        <div class="panel-box">
+          <h4>FREQUENCY OFFSET (DOPPLER Δf)</h4>
+          <div class="slider-row">
+            <label>Δf <b id="l2-df-val">0.0 kHz</b></label>
+            <input type="range" id="l2-df" min="-100" max="100" value="0">
+          </div>
+        </div>
+        <div class="panel-box" id="l2-hint-box">
+          <h4>SNR (SIGNAL-TO-NOISE RATIO)</h4>
+          <div id="l2-snr-val" style="font-size:26px;color:var(--cyan);font-family:var(--font-display);">0%</div>
+          <div class="hint-box" style="margin-top:10px;">
+            ระวัง! พายุสุริยะ (Solar Flare) จะทำให้ค่าความถี่แกว่งสุ่ม (Drift) ต้องคอยเลื่อนสไลเดอร์ชดเชยตามคลื่นให้ทัน
+          </div>
+        </div>
+        <button class="btn" id="l2-back-btn">← กลับหน้า Level Select</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LEVEL 3: ORTHO PRODUCT & SPECTRAL GIS ANALYSIS ============ -->
+  <section id="screen-level3" class="screen">
+    <div class="topbar">
+      <div>
+        <div class="station-id">🖥️ LEVEL 3 :: ORTHO PRODUCT & GIS ANALYSIS</div>
+        <div class="mission-name">Mission 3: สกัดข้อมูลสารสนเทศ ตรวจจับเรือรุกล้ำและบุกรุกพื้นที่ป่าไม้</div>
+      </div>
+      <div class="mini-stat" id="l3-mode-tag">โหมดสอน</div>
+    </div>
+    <div class="ticker-wrap"><div class="ticker" id="l3-ticker">SRIRACHA-GS :: LEVEL 3 ORTHO PRODUCT GENERATION :: SPECTRAL BAND ANALYSIS :: SAR RADAR VESSEL DETECTION :: NDVI DEFORESTATION ANALYTICS ::&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div></div>
+    <div class="mission-scene">
+      <div class="briefing-overlay" id="l3-briefing">
+        <div class="briefing-card">
+          <div class="who">หัวหน้าสถานี — ผอ.ศูนย์ศรีราชา (THEOS-2 Operation)</div>
+          <div class="briefing-text" id="l3-briefing-text"><span class="cursor">▌</span></div>
+          <button class="btn primary" style="margin-top:18px;" id="l3-start-btn">เริ่มกระบวนการ LEVEL 3</button>
+        </div>
+      </div>
+      <div class="briefing-overlay" id="l3-pass-transition" style="display:none;">
+        <div class="briefing-card" style="text-align:center;border-color:var(--green);box-shadow:0 0 40px rgba(57,255,156,.2);">
+          <div class="who" style="color:var(--green);">PASS COMPLETE</div>
+          <div class="briefing-text" id="l3-pass-transition-text" style="min-height:auto;"></div>
+        </div>
+      </div>
+      <div class="viewport-col">
+        <div class="viewport-panel">
+          <canvas id="l3-canvas"></canvas>
+        </div>
+        <div class="status-strip">
+          <div class="led" id="l3-led"></div>
+          <div class="status-text lost" id="l3-status-text">IMAGE NOISY</div>
+          <div class="hold-bar-wrap"><div class="hold-bar" id="l3-hold-bar"></div></div>
+          <div class="mini-stat" id="l3-pass">PASS 1/3</div>
+          <div class="mini-stat" id="l3-timer">00:00</div>
+        </div>
+      </div>
+      <div class="control-col">
+        <!-- Target Band Banner -->
+        <div class="target-band-banner" id="l3-target-banner">
+          🎯 ย่านคลื่นเป้าหมาย: <b id="l3-target-band-name">SAR RADAR</b>
+        </div>
+
+        <div class="panel-box">
+          <h4>1. เลือกย่าน SPECTRAL BAND</h4>
+          <div class="band-selector">
+            <button class="band-btn active" data-band="RGB">OPTICAL (RGB)</button>
+            <button class="band-btn" data-band="NDVI">NIR (NDVI)</button>
+            <button class="band-btn" data-band="SAR">SAR RADAR</button>
+          </div>
+        </div>
+
+        <div class="panel-box">
+          <h4>2. ปรับจูนความคมชัดภาพ (TUNING)</h4>
+          <div class="slider-row">
+            <label>FREQUENCY SYNC <b id="l3-sync-val">0%</b></label>
+            <input type="range" id="l3-sync" min="0" max="100" value="0">
+            <div class="tune-helper"><span>คำแนะนำทิศทาง:</span> <b id="l3-sync-hint" style="color:var(--amber);">หมุนเพิ่มอีก ►►</b></div>
+          </div>
+          <div class="slider-row" style="margin-top:10px;">
+            <label>PHASE FILTER <b id="l3-phase-val">0%</b></label>
+            <input type="range" id="l3-phase" min="0" max="100" value="0">
+            <div class="tune-helper"><span>คำแนะนำทิศทาง:</span> <b id="l3-phase-hint" style="color:var(--amber);">หมุนเพิ่มอีก ►►</b></div>
+          </div>
+        </div>
+
+        <div class="panel-box" id="l3-hint-box">
+          <h4>ความคมชัดภาพ (CLARITY)</h4>
+          <div id="l3-clarity-val" style="font-size:26px;color:var(--cyan);font-family:var(--font-display);">0%</div>
+          <div class="hint-box" style="margin-top:10px;">
+            <b>วิธีทำให้ภาพชัด 100%:</b><br>
+            1) กดเลือกปุ่มย่านคลื่นให้ตรงกับข้อความกรอบส้มด้านบน<br>
+            2) เลื่อนสไลเดอร์ทั้งสองช่องตามลูกศรใบ้ข้างใต้ จนขึ้นคำว่า <b>✓ MATCHED!</b> ทั้งคู่ ภาพจะชัดแจ๋วและผ่านด่านทันที
+          </div>
+        </div>
+        <button class="btn" id="l3-back-btn">← กลับหน้า Level Select</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ EVALUATION SHEET (AIP DASHBOARD) ============ -->
+  <section id="screen-evaluation" class="screen">
+    <div class="topbar">
+      <div class="station-id">ACTIONABLE INTELLIGENCE POLICY (AIP) DASHBOARD</div>
+      <div></div>
+    </div>
+    <div class="eval-body">
+      <div class="eval-sheet">
+        <div class="eval-head">
+          <div class="aip-title" id="ev-mission-title">MISSION EVALUATION & POLICY SUMMARY</div>
+          <div class="status-line" id="ev-status">STATUS: PIPELINE VERIFIED</div>
+          <div class="grade-chip" id="ev-grade">S</div>
+        </div>
+
+        <div class="aip-box">
+          <b>🚨 [ข้อเสนอแนะเชิงนโยบายด่วนที่สุด - AIP POLICY RECOMMENDATION]:</b>
+          <span id="ev-aip-text">กำลังประมวลผลข้อเสนอแนะเชิงนโยบายสำหรับผู้ว่าราชการจังหวัดและหน่วยงานปฏิบัติการ...</span>
+        </div>
+
+        <div class="eval-rows">
+          <div class="eval-row"><span>THEOS-2 Processing Level</span><b>Level 0 ➔ Level 3 (Ortho Product)</b></div>
+          <div class="eval-row"><span>Overall Processing Score</span><b id="ev-score">0.0%</b></div>
+          <div class="eval-row"><span>Total Processing Time</span><b id="ev-time">0s</b></div>
+          <div class="eval-row"><span>Signal Drift / Errors</span><b id="ev-errors">0</b></div>
+          <div class="eval-row"><span>Operator Certification</span><b id="ev-rank">—</b></div>
+        </div>
+        <div class="vcode" id="ev-vcode">AIP-TH2-0000-S</div>
+        <div class="btn-row">
+          <button class="btn" id="ev-retry-btn">เล่นซ้ำด่านนี้</button>
+          <button class="btn primary" id="ev-menu-btn">กลับสู่เมนูหลัก</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* ==================================================================
+   WEB AUDIO API SYNTHESIZER ENGINE
+   ================================================================== */
+const AudioEngine = (function(){
+  let ctx = null;
+  function getCtx(){
+    if(!ctx){
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if(ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  return {
+    playBeep: function(freq = 600, duration = 0.06){
+      try {
+        const c = getCtx();
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, c.currentTime);
+        gain.gain.setValueAtTime(0.05, c.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + duration);
+        osc.connect(gain); gain.connect(c.destination);
+        osc.start(); osc.stop(c.currentTime + duration);
+      } catch(e){}
+    },
+    playLock: function(){
+      try {
+        const c = getCtx();
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(440, c.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, c.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.12, c.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.18);
+        osc.connect(gain); gain.connect(c.destination);
+        osc.start(); osc.stop(c.currentTime + 0.18);
+      } catch(e){}
+    },
+    playAlarm: function(){
+      try {
+        const c = getCtx();
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, c.currentTime);
+        osc.frequency.linearRampToValueAtTime(440, c.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.08, c.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.12);
+        osc.connect(gain); gain.connect(c.destination);
+        osc.start(); osc.stop(c.currentTime + 0.12);
+      } catch(e){}
+    }
+  };
+})();
+
+/* ==================================================================
+   GAME STATE & PIPELINE MANAGEMENT
+   ================================================================== */
+const state = {
+  mode: 'tutorial',
+  tutorialProgress: { level1:false, level2:false, level3:false },
+  challengeProgress: { level1:false, level2:false, level3:false },
+  skipPopup: { level1:false, level2:false, level3:false },
+  lastEval: null
+};
+
+const LEVELS = [
+  { id:'level1', icon:'🛰️', levelTag:'LEVEL 0', name:'RAW DATA INGESTION', mission:'ภารกิจ: รับสัญญาณภาพถ่ายน้ำท่วมลุ่มน้ำชี-มูล', screen:'screen-level1' },
+  { id:'level2', icon:'📡', levelTag:'LEVEL 1/2A', name:'RADIOMETRIC & DOPPLER', mission:'ภารกิจ: แก้ไขความถี่ส่าย/พายุสุริยะ สแกนควันไฟป่า PM2.5', screen:'screen-level2' },
+  { id:'level3', icon:'🖥️', levelTag:'LEVEL 3', name:'ORTHO PRODUCT & GIS ANALYTICS', mission:'ภารกิจ: สกัดข้อมูลสารสนเทศ เรือรุกล้ำ/ตัดไม้ทำลายป่า', screen:'screen-level3' }
+];
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0,0);
+}
+
+function progressFor(mode){ return mode==='tutorial' ? state.tutorialProgress : state.challengeProgress; }
+
+function isUnlocked(levelId, mode){
+  const idx = LEVELS.findIndex(l=>l.id===levelId);
+  if(idx===0) return true;
+  const prev = LEVELS[idx-1];
+  return !!progressFor(mode)[prev.id];
+}
+
+function renderStations(){
+  const wrap = document.getElementById('stations');
+  wrap.innerHTML = '';
+  LEVELS.forEach(lv=>{
+    const unlocked = isUnlocked(lv.id, state.mode);
+    const passed = progressFor(state.mode)[lv.id];
+    const div = document.createElement('div');
+    div.className = 'station' + (unlocked ? '' : ' locked');
+    div.innerHTML = `
+      <div class="badge ${passed?'passed':'locked-badge'}">${passed ? 'ผ่านกระบวนการ ✓' : (unlocked?'พร้อมปฏิบัติงาน':'ล็อก')}</div>
+      <div class="icon">${lv.icon}</div>
+      <div class="s-level">${lv.levelTag}</div>
+      <div class="s-name">${lv.name}</div>
+      <div class="s-mission">${lv.mission}</div>
+    `;
+    if(unlocked){
+      div.addEventListener('click', ()=> {
+        AudioEngine.playBeep(800);
+        enterLevel(lv.id);
+      });
+    }
+    wrap.appendChild(div);
+  });
+}
+
+document.getElementById('mode-toggle').addEventListener('click', e=>{
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  AudioEngine.playBeep(700);
+  state.mode = btn.dataset.mode;
+  document.querySelectorAll('#mode-toggle button').forEach(b=>b.classList.toggle('active', b===btn));
+  renderStations();
+});
+
+function enterLevel(id){
+  if(state.mode==='challenge' && !state.skipPopup[id]){
+    openChallengePopup(id);
+    return;
+  }
+  startLevel(id);
+}
+
+function openChallengePopup(id){
+  const overlay = document.createElement('div');
+  overlay.className = 'briefing-overlay';
+  overlay.innerHTML = `
+    <div class="briefing-card" style="border-color:var(--amber);">
+      <div class="who">⚠️ CHALLENGE MODE WARNING</div>
+      <div class="briefing-text" style="min-height:auto;">
+        โหมด Challenge จะจับเวลาและนับข้อผิดพลาดทันทีโดยไม่มีคำแนะนำ หากยังไม่คุ้นเคยกับกระบวนการ THEOS-2 แนะนำให้ฝึกในโหมดสอนก่อน
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin:14px 0;font-family:var(--font-thai);">
+        <input type="checkbox" id="popup-skip-chk"> ไม่ต้องแสดงคำเตือนนี้อีกในด่านนี้
+      </label>
+      <div class="btn-row">
+        <button class="btn" id="popup-tutorial-btn">ไปโหมดสอน</button>
+        <button class="btn primary" id="popup-challenge-btn">เริ่ม Challenge เลย</button>
+      </div>
+    </div>`;
+  document.getElementById('app').appendChild(overlay);
+  overlay.querySelector('#popup-tutorial-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(600);
+    if(overlay.querySelector('#popup-skip-chk').checked) state.skipPopup[id]=true;
+    state.mode='tutorial';
+    document.querySelectorAll('#mode-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.mode==='tutorial'));
+    overlay.remove();
+    startLevel(id);
+  });
+  overlay.querySelector('#popup-challenge-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(900);
+    if(overlay.querySelector('#popup-skip-chk').checked) state.skipPopup[id]=true;
+    overlay.remove();
+    startLevel(id);
+  });
+}
+
+function startLevel(id){
+  const lv = LEVELS.find(l=>l.id===id);
+  if(!lv) return;
+  showScreen(lv.screen);
+  if(id==='level1') L1.init(state.mode);
+  if(id==='level2') L2.init(state.mode);
+  if(id==='level3') L3.init(state.mode);
+}
+
+renderStations();
+
+function fmtTime(sec){
+  const m = Math.floor(sec/60).toString().padStart(2,'0');
+  const s = Math.floor(sec%60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
+function typewriter(el, text, speed, done){
+  el.innerHTML = '';
+  let i = 0;
+  const cursor = document.createElement('span');
+  cursor.className='cursor'; cursor.textContent='▌';
+  function step(){
+    if(i <= text.length){
+      el.textContent = text.slice(0,i);
+      el.appendChild(cursor);
+      i++;
+      setTimeout(step, speed);
+    } else if(done){ done(); }
+  }
+  step();
+}
+function fireHold(barEl, ratio){ barEl.style.width = (ratio*100).toFixed(0)+'%'; }
+
+/* ==================================================================
+   LEVEL 0 — RAW DATA INGESTION
+   ================================================================== */
+const L1 = (function(){
+  let canvas, ctx, raf;
+  let az=180, el=45, satAz=0, satEl=0;
+  let t0, lastT, elapsed=0;
+  let holdTime=0, dropCount=0, wasLocked=false;
+  let running=false, mode='tutorial';
+  let passIndex=0, passStartElapsed=0, gainRecord=[];
+
+  const PASSES = [
+    { cycle:110, sigmaAz:26, sigmaEl:18, requiredHold:6, azStart:20,  dir:1  },
+    { cycle:85,  sigmaAz:20, sigmaEl:14, requiredHold:7, azStart:340, dir:-1 },
+    { cycle:65,  sigmaAz:15, sigmaEl:10, requiredHold:8, azStart:60,  dir:1  }
+  ];
+
+  function init(m){
+    mode = m;
+    canvas = document.getElementById('l1-canvas');
+    ctx = canvas.getContext('2d');
+    az=180; el=45; holdTime=0; dropCount=0; elapsed=0; wasLocked=false; running=false;
+    passIndex=0; passStartElapsed=0; gainRecord=[];
+    document.getElementById('l1-az').value=180;
+    document.getElementById('l1-el').value=45;
+    document.getElementById('l1-az-val').textContent='180°';
+    document.getElementById('l1-el-val').textContent='45°';
+    document.getElementById('l1-mode-tag').textContent = mode==='tutorial' ? 'โหมดสอน' : 'CHALLENGE';
+    document.getElementById('l1-hint-box').style.display = mode==='tutorial' ? 'block' : 'none';
+    document.getElementById('l1-pass').textContent = `PASS 1/${PASSES.length}`;
+    document.getElementById('l1-pass-transition').style.display='none';
+    document.getElementById('l1-hazard').style.display='none';
+    document.getElementById('l1-briefing').style.display='flex';
+    typewriter(document.getElementById('l1-briefing-text'),
+      'เข้าสู่กระบวนการ LEVEL 0: รับสัญญาณดิบ (Raw Data Ingestion) จากดาวเทียม THEOS-2 เหนือลุ่มน้ำชี-มูล เลี้ยงจานสายอากาศติดตามดาวเทียมให้ตรงจุดและระวัง Rain Fade สัญญาณ!', 20);
+    resize();
+  }
+
+  function resize(){
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width || 300; canvas.height = rect.height || 300;
+  }
+  window.addEventListener('resize', ()=>{ if(canvas) resize(); });
+
+  document.getElementById('l1-start-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(900);
+    document.getElementById('l1-briefing').style.display='none';
+    running = true; t0 = performance.now(); lastT = t0;
+    raf = requestAnimationFrame(loop);
+  });
+  document.getElementById('l1-back-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(500);
+    cancelAnimationFrame(raf); running=false;
+    showScreen('screen-level-select'); renderStations();
+  });
+  document.getElementById('l1-az').addEventListener('input', e=>{
+    az = +e.target.value; document.getElementById('l1-az-val').textContent = az+'°';
+    AudioEngine.playBeep(400 + az, 0.02);
+  });
+  document.getElementById('l1-el').addEventListener('input', e=>{
+    el = +e.target.value; document.getElementById('l1-el-val').textContent = el+'°';
+    AudioEngine.playBeep(600 + el*3, 0.02);
+  });
+
+  function satellitePosition(tSecInPass, cfg){
+    const phase = (tSecInPass % cfg.cycle) / cfg.cycle;
+    let a = cfg.azStart + cfg.dir*320*phase;
+    a = ((a % 360) + 360) % 360;
+    const e = 90*Math.sin(Math.PI*phase);
+    return { az:a, el:Math.max(2,e) };
+  }
+
+  function loop(now){
+    const dt = (now-lastT)/1000; lastT = now; elapsed = (now-t0)/1000;
+    const cfg = PASSES[passIndex];
+    const passElapsed = elapsed - passStartElapsed;
+    const sat = satellitePosition(passElapsed, cfg);
+    satAz = sat.az; satEl = sat.el;
+
+    const isRainFade = (passElapsed % 10 > 5 && passElapsed % 10 < 8.5);
+    document.getElementById('l1-hazard').style.display = isRainFade ? 'block' : 'none';
+    if(isRainFade) AudioEngine.playAlarm();
+
+    const dAz = Math.min(Math.abs(az-satAz), 360-Math.abs(az-satAz));
+    const dEl = Math.abs(el-satEl);
+    let gAz = Math.exp(-(dAz*dAz)/(2*cfg.sigmaAz*cfg.sigmaAz));
+    let gEl = Math.exp(-(dEl*dEl)/(2*cfg.sigmaEl*cfg.sigmaEl));
+    let gain = gAz*gEl;
+
+    if(isRainFade) gain *= 0.55;
+
+    const locked = gain >= 0.65;
+
+    if(locked){
+      holdTime += dt;
+      if(!wasLocked){ wasLocked = true; AudioEngine.playLock(); }
+    } else {
+      if(wasLocked && holdTime < cfg.requiredHold){ dropCount++; AudioEngine.playAlarm(); }
+      holdTime = Math.max(0, holdTime - dt*0.8);
+      wasLocked = false;
+    }
+
+    updateHUD(gain, locked, cfg);
+    draw(sat, gain, locked, isRainFade);
+
+    if(holdTime >= cfg.requiredHold){
+      gainRecord.push(gain); cancelAnimationFrame(raf);
+      if(passIndex >= PASSES.length-1){
+        running=false; complete(gainRecord.reduce((a,b)=>a+b,0)/gainRecord.length);
+      } else {
+        runPassTransition();
+      }
+      return;
+    }
+    raf = requestAnimationFrame(loop);
+  }
+
+  function runPassTransition(){
+    AudioEngine.playLock();
+    const overlay = document.getElementById('l1-pass-transition');
+    document.getElementById('l1-pass-transition-text').textContent = `LEVEL 0 :: PASS ${passIndex+1}/${PASSES.length} COMPLETED — DOWNLINKING TELEMETRY...`;
+    overlay.style.display='flex';
+    setTimeout(()=>{
+      overlay.style.display='none'; passIndex++; passStartElapsed = elapsed; holdTime = 0; wasLocked = false;
+      document.getElementById('l1-pass').textContent = `PASS ${passIndex+1}/${PASSES.length}`;
+      lastT = performance.now(); raf = requestAnimationFrame(loop);
+    }, 1400);
+  }
+
+  function updateHUD(gain, locked, cfg){
+    document.getElementById('l1-gain-val').textContent = Math.round(gain*100)+'%';
+    document.getElementById('l1-led').classList.toggle('locked', locked);
+    const st = document.getElementById('l1-status-text');
+    st.textContent = locked ? 'SIGNAL LOCKED' : 'SIGNAL DRIFTING';
+    st.classList.toggle('locked', locked); st.classList.toggle('lost', !locked);
+    fireHold(document.getElementById('l1-hold-bar'), holdTime/cfg.requiredHold);
+    document.getElementById('l1-timer').textContent = fmtTime(elapsed);
+    document.getElementById('l1-pass').textContent = `PASS ${passIndex+1}/${PASSES.length}`;
+  }
+
+  function draw(sat, gain, locked, isRainFade){
+    const w=canvas.width, h=canvas.height, cx=w/2, cy=h/2, R=Math.min(w,h)*0.42;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle = isRainFade ? '#0a0a16' : '#0a1220'; ctx.fillRect(0,0,w,h);
+    
+    ctx.strokeStyle = 'rgba(79,216,255,0.15)'; ctx.lineWidth=1;
+    for(let r=1;r<=3;r++){ ctx.beginPath(); ctx.arc(cx,cy,R*r/3,0,Math.PI*2); ctx.stroke(); }
+    
+    const sweepAngle = (performance.now()/1000 * 1.1) % (Math.PI*2);
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,R, sweepAngle-0.5, sweepAngle); ctx.closePath();
+    ctx.fillStyle = isRainFade ? 'rgba(255,59,84,0.1)' : 'rgba(57,255,156,0.08)'; ctx.fill(); ctx.restore();
+
+    if(isRainFade){
+      ctx.fillStyle = 'rgba(120,150,200,0.15)';
+      for(let i=0; i<30; i++){ ctx.fillRect(Math.random()*w, Math.random()*h, 2, 12); }
+    }
+    
+    const pr = R*(1-el/90); const pa = (az-90)*Math.PI/180;
+    const px = cx+pr*Math.cos(pa), py = cy+pr*Math.sin(pa);
+    ctx.strokeStyle = locked ? '#39ff9c' : '#4fd8ff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(px-12,py); ctx.lineTo(px+12,py); ctx.moveTo(px,py-12); ctx.lineTo(px,py+12); ctx.stroke();
+    ctx.beginPath(); ctx.arc(px,py,16,0,Math.PI*2); ctx.stroke();
+    
+    const sr = R*(1-sat.el/90); const sa = (sat.az-90)*Math.PI/180;
+    const sx = cx+sr*Math.cos(sa), sy = cy+sr*Math.sin(sa);
+    ctx.fillStyle = '#ffb454'; ctx.beginPath(); ctx.arc(sx,sy,6,0,Math.PI*2); ctx.fill();
+  }
+
+  function complete(avgGain){
+    if(mode==='tutorial'){ state.tutorialProgress.level1 = true; }
+    else { state.challengeProgress.level1 = true; }
+    showEvaluation({
+      missionTitle: 'LEVEL 0 :: RAW DATA INGESTION (ANTENNA TRACKING)',
+      align_eff: Math.min(1, avgGain), snr_norm: 1, timeSec: elapsed, errors: dropCount, levelId: 'level1'
+    });
+  }
+
+  return { init };
+})();
+
+/* ==================================================================
+   LEVEL 1/2A — RADIOMETRIC & DOPPLER
+   ================================================================== */
+const L2 = (function(){
+  let canvas, ctx, raf;
+  let df=0, targetDf=0;
+  let t0, lastT, elapsed=0, holdTime=0, errCount=0;
+  let running=false, mode='tutorial';
+  let passIndex=0, passStartElapsed=0, snrRecord=[], peakSnr=0;
+
+  const PASSES = [
+    { period:50, amplitude:5.0, wobbleAmp:0.8, wobblePeriod:6.5, sigma:2.8, requiredHold:6, threshold:0.72 },
+    { period:30, amplitude:6.5, wobbleAmp:1.5, wobblePeriod:4.2, sigma:2.4, requiredHold:7, threshold:0.75 },
+    { period:18, amplitude:8.0, wobbleAmp:2.2, wobblePeriod:2.6, sigma:2.0, requiredHold:8, threshold:0.78 }
+  ];
+
+  function init(m){
+    mode = m; canvas = document.getElementById('l2-canvas'); ctx = canvas.getContext('2d');
+    df=0; holdTime=0; errCount=0; elapsed=0; running=false;
+    passIndex=0; passStartElapsed=0; snrRecord=[]; peakSnr=0;
+    document.getElementById('l2-df').value = 0; document.getElementById('l2-df-val').textContent = '0.0 kHz';
+    document.getElementById('l2-mode-tag').textContent = mode==='tutorial' ? 'โหมดสอน' : 'CHALLENGE';
+    document.getElementById('l2-hint-box').style.display = mode==='tutorial' ? 'block' : 'none';
+    document.getElementById('l2-pass').textContent = `PASS 1/${PASSES.length}`;
+    document.getElementById('l2-pass-transition').style.display='none';
+    document.getElementById('l2-hazard').style.display='none';
+    document.getElementById('l2-briefing').style.display='flex';
+    typewriter(document.getElementById('l2-briefing-text'),
+      'เข้าสู่กระบวนการ LEVEL 1/2A: แก้ไขความถี่ส่าย Doppler Shift และ Radiometric Correction ชดเชยคลื่นรบกวนสุ่มจากพายุสุริยะ เพื่อสแกนควันพิษ PM2.5 จ.เชียงใหม่', 20);
+    resize();
+  }
+  function resize(){
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width || 300; canvas.height = rect.height || 300;
+  }
+  window.addEventListener('resize', ()=>{ if(canvas) resize(); });
+
+  document.getElementById('l2-start-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(900); document.getElementById('l2-briefing').style.display='none';
+    running = true; t0 = performance.now(); lastT = t0;
+    raf = requestAnimationFrame(loop);
+  });
+  document.getElementById('l2-back-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(500); cancelAnimationFrame(raf); running=false;
+    showScreen('screen-level-select'); renderStations();
+  });
+  document.getElementById('l2-df').addEventListener('input', e=>{
+    df = +e.target.value/10; document.getElementById('l2-df-val').textContent = df.toFixed(1)+' kHz';
+    AudioEngine.playBeep(500 + (df+10)*20, 0.02);
+  });
+
+  function loop(now){
+    const dt = (now-lastT)/1000; lastT = now; elapsed = (now-t0)/1000;
+    const cfg = PASSES[passIndex]; const passElapsed = elapsed - passStartElapsed;
+
+    const isSolarFlare = (passElapsed % 12 > 6 && passElapsed % 12 < 9.5);
+    document.getElementById('l2-hazard').style.display = isSolarFlare ? 'block' : 'none';
+    if(isSolarFlare) AudioEngine.playAlarm();
+
+    const flareNoise = isSolarFlare ? (Math.sin(passElapsed * 15) * 5.5) : 0;
+    targetDf = cfg.amplitude*Math.sin(2*Math.PI*passElapsed/cfg.period) + cfg.wobbleAmp*Math.sin(2*Math.PI*passElapsed/cfg.wobblePeriod) + flareNoise;
+    
+    const diff = Math.abs(df-targetDf);
+    const snr = Math.exp(-(diff*diff)/(2*cfg.sigma*cfg.sigma));
+    const locked = snr >= cfg.threshold;
+
+    if(locked){ holdTime += dt; }
+    else { holdTime = Math.max(0, holdTime - dt*0.8); if(!isSolarFlare) errCount += dt * 0.2; }
+
+    if(snr > peakSnr){ peakSnr = snr; document.getElementById('l2-combo').textContent = `PEAK ${Math.round(peakSnr*100)}%`; }
+
+    updateHUD(snr, locked, cfg); drawSpectrum(snr, targetDf, isSolarFlare);
+
+    if(holdTime >= cfg.requiredHold){
+      snrRecord.push(snr); cancelAnimationFrame(raf);
+      if(passIndex >= PASSES.length-1){
+        running=false; complete(snrRecord.reduce((a,b)=>a+b,0)/snrRecord.length);
+      } else { runPassTransition(); }
+      return;
+    }
+    raf = requestAnimationFrame(loop);
+  }
+
+  function runPassTransition(){
+    AudioEngine.playLock();
+    const overlay = document.getElementById('l2-pass-transition');
+    document.getElementById('l2-pass-transition-text').textContent = `LEVEL 1/2A :: PASS ${passIndex+1}/${PASSES.length} PASSED — RADIOMETRIC RESTORED...`;
+    overlay.style.display='flex';
+    setTimeout(()=>{
+      overlay.style.display='none'; passIndex++; passStartElapsed = elapsed; holdTime = 0;
+      document.getElementById('l2-pass').textContent = `PASS ${passIndex+1}/${PASSES.length}`;
+      lastT = performance.now(); raf = requestAnimationFrame(loop);
+    }, 1400);
+  }
+
+  function updateHUD(snr, locked, cfg){
+    document.getElementById('l2-snr-val').textContent = Math.round(snr*100)+'%';
+    document.getElementById('l2-led').classList.toggle('locked', locked);
+    const st = document.getElementById('l2-status-text');
+    st.textContent = locked ? 'SIGNAL LOCKED' : 'SIGNAL DRIFTING';
+    st.classList.toggle('locked', locked); st.classList.toggle('lost', !locked);
+    fireHold(document.getElementById('l2-hold-bar'), holdTime/cfg.requiredHold);
+    document.getElementById('l2-timer').textContent = fmtTime(elapsed);
+  }
+
+  function drawSpectrum(snr, targetDf, isSolarFlare){
+    const w=canvas.width, h=canvas.height;
+    ctx.clearRect(0,0,w,h); ctx.fillStyle= isSolarFlare ? '#14080a' : '#0a1220'; ctx.fillRect(0,0,w,h);
+    
+    const bins=60, barW = w/bins;
+    const kHzToX = (k)=> w/2 + (k/12)*(w/2-20);
+    const targetX = kHzToX(targetDf);
+    const peakBin = Math.floor(targetX/barW);
+    
+    for(let i=0;i<bins;i++){
+      const distFromPeak = Math.abs(i-peakBin);
+      const signalComponent = Math.exp(-(distFromPeak*distFromPeak)/(2*1.5*1.5)) * (0.35+0.65*snr) * h*0.78;
+      const noiseComponent = Math.random()*h*0.18*(1.15-snr*0.7);
+      const barH = Math.min(h*0.94, signalComponent+noiseComponent+2);
+      ctx.fillStyle = isSolarFlare ? '#ff3b54' : (snr>0.6 ? '#39ff9c' : (snr>0.3 ? '#ffb454' : '#ff3b54'));
+      ctx.fillRect(i*barW+1, h-barH, barW-2, barH);
+    }
+    const px = kHzToX(df);
+    ctx.strokeStyle='#4fd8ff'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(px,0); ctx.lineTo(px,h); ctx.stroke();
+  }
+
+  function complete(avgSnr){
+    if(mode==='tutorial'){ state.tutorialProgress.level2 = true; }
+    else { state.challengeProgress.level2 = true; }
+    showEvaluation({
+      missionTitle: 'LEVEL 1/2A :: RADIOMETRIC & DOPPLER CORRECTION',
+      align_eff: 1, snr_norm: Math.min(1, avgSnr), timeSec: elapsed, errors: Math.floor(errCount), levelId: 'level2', peakSnr: peakSnr
+    });
+  }
+
+  return { init };
+})();
+
+/* ==================================================================
+   LEVEL 3 — ORTHO PRODUCT & GIS ANALYSIS (RESTRUCTURED EASY TUNING)
+   ================================================================== */
+const L3 = (function(){
+  let canvas, ctx, raf;
+  let syncVal=0, phaseVal=0, activeBand='RGB';
+  let t0, lastT, elapsed=0, holdTime=0, errCount=0;
+  let running=false, mode='tutorial';
+  let passIndex=0, passStartElapsed=0, clarityRecord=[];
+
+  // Explicit parameters for easy guided matching
+  const PASSES = [
+    { 
+      targetSync:75, targetPhase:60, targetBand:'SAR', bandLabel:'SAR RADAR (ตรวจจับวัตถุโลหะ/เรือ)', reqHold:5, 
+      briefing:'ภารกิจที่ 1: ตรวจจับเรือรุกล้ำน่านน้ำ ➔ เลือกย่านคลื่น [SAR RADAR] แล้วเลื่อนสไลเดอร์ตามคำแนะนำลูกศรข้างใต้เพื่อปรับภาพให้ชัด!' 
+    },
+    { 
+      targetSync:40, targetPhase:80, targetBand:'NDVI', bandLabel:'NIR / NDVI (ตรวจสแกนพื้นที่ป่าไม้)', reqHold:6, 
+      briefing:'ภารกิจที่ 2: ตรวจสแกนพื้นที่ป่าโดนทำลาย ➔ สลับไปที่ย่านคลื่น [NIR (NDVI)] แล้วเลื่อนสไลเดอร์ตามลูกศรใบ้!' 
+    },
+    { 
+      targetSync:85, targetPhase:30, targetBand:'RGB', bandLabel:'OPTICAL (RGB) (ภาพสีธรรมชาติ)', reqHold:6, 
+      briefing:'ภารกิจที่ 3: สกัดภาพถ่ายสีธรรมชาติ ➔ สลับย่านคลื่นไปที่ [OPTICAL (RGB)] แล้วปรับสไลเดอร์ให้ได้ภาพ Level 3 สวยงามกริ๊บ!' 
+    }
+  ];
+
+  function init(m){
+    mode = m; canvas = document.getElementById('l3-canvas'); ctx = canvas.getContext('2d');
+    syncVal=0; phaseVal=0; holdTime=0; errCount=0; elapsed=0; running=false;
+    passIndex=0; passStartElapsed=0; clarityRecord=[]; activeBand='RGB';
+    
+    document.getElementById('l3-sync').value = 0; document.getElementById('l3-sync-val').textContent = '0%';
+    document.getElementById('l3-phase').value = 0; document.getElementById('l3-phase-val').textContent = '0%';
+    
+    document.getElementById('l3-mode-tag').textContent = mode==='tutorial' ? 'โหมดสอน' : 'CHALLENGE';
+    document.getElementById('l3-hint-box').style.display = mode==='tutorial' ? 'block' : 'none';
+    document.getElementById('l3-pass').textContent = `PASS 1/${PASSES.length}`;
+    document.getElementById('l3-pass-transition').style.display='none';
+    
+    updateTargetBanner();
+
+    document.querySelectorAll('.band-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.band === activeBand);
+    });
+
+    document.getElementById('l3-briefing').style.display='flex';
+    typewriter(document.getElementById('l3-briefing-text'), PASSES[0].briefing, 20);
+    resize();
+  }
+
+  function updateTargetBanner(){
+    const cfg = PASSES[passIndex];
+    document.getElementById('l3-target-band-name').textContent = cfg.bandLabel;
+  }
+
+  function resize(){
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width || 300; canvas.height = rect.height || 300;
+  }
+  window.addEventListener('resize', ()=>{ if(canvas) resize(); });
+
+  document.getElementById('l3-start-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(900); document.getElementById('l3-briefing').style.display='none';
+    running = true; t0 = performance.now(); lastT = t0;
+    raf = requestAnimationFrame(loop);
+  });
+
+  document.getElementById('l3-back-btn').addEventListener('click', ()=>{
+    AudioEngine.playBeep(500); cancelAnimationFrame(raf); running=false;
+    showScreen('screen-level-select'); renderStations();
+  });
+
+  document.getElementById('l3-sync').addEventListener('input', e=>{
+    syncVal = +e.target.value;
+    document.getElementById('l3-sync-val').textContent = syncVal+'%';
+    AudioEngine.playBeep(450 + syncVal*3, 0.02);
+  });
+
+  document.getElementById('l3-phase').addEventListener('input', e=>{
+    phaseVal = +e.target.value;
+    document.getElementById('l3-phase-val').textContent = phaseVal+'%';
+    AudioEngine.playBeep(650 + phaseVal*3, 0.02);
+  });
+
+  document.querySelectorAll('.band-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      AudioEngine.playBeep(850);
+      activeBand = e.target.dataset.band;
+      document.querySelectorAll('.band-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+    });
+  });
+
+  function loop(now){
+    const dt = (now-lastT)/1000; lastT = now; elapsed = (now-t0)/1000;
+    const cfg = PASSES[passIndex];
+
+    // Distance calculation for simple intuitive match
+    const diffSync = Math.abs(syncVal - cfg.targetSync);
+    const diffPhase = Math.abs(phaseVal - cfg.targetPhase);
+
+    const claritySync = Math.max(0, 1 - (diffSync / 18));
+    const clarityPhase = Math.max(0, 1 - (diffPhase / 18));
+    
+    const clarity = claritySync * clarityPhase;
+    const correctBand = (activeBand === cfg.targetBand);
+    const locked = (clarity >= 0.75) && correctBand;
+
+    if(locked){
+      holdTime += dt;
+    } else {
+      if(clarity < 0.3) errCount += dt * 0.2;
+      holdTime = Math.max(0, holdTime - dt * 0.9);
+    }
+
+    updateHUDAndHelpers(clarity, locked, cfg, correctBand, diffSync, diffPhase);
+    drawGeospatialMap(clarity, locked, cfg);
+
+    if(holdTime >= cfg.reqHold){
+      clarityRecord.push(clarity); cancelAnimationFrame(raf);
+      if(passIndex >= PASSES.length-1){
+        running=false; complete(clarityRecord.reduce((a,b)=>a+b,0)/clarityRecord.length);
+      } else { runPassTransition(); }
+      return;
+    }
+    raf = requestAnimationFrame(loop);
+  }
+
+  function updateHUDAndHelpers(clarity, locked, cfg, correctBand, diffSync, diffPhase){
+    document.getElementById('l3-clarity-val').textContent = Math.round(clarity*100)+'%';
+    document.getElementById('l3-led').classList.toggle('locked', locked);
+    const st = document.getElementById('l3-status-text');
+    
+    if(locked){
+      st.textContent = 'IMAGE CLEAR & LOCKED ✓';
+      st.className = 'status-text locked';
+    } else if(!correctBand){
+      st.textContent = `เลือกย่านผิด! (ต้องใช้ ${cfg.targetBand})`;
+      st.className = 'status-text lost';
+    } else {
+      st.textContent = 'ภาพซ่ามัว (ปรับจูนสไลเดอร์ตามคำแนะนำ)';
+      st.className = 'status-text lost';
+    }
+
+    // Interactive Directional Arrow Helpers
+    const syncHintEl = document.getElementById('l3-sync-hint');
+    if(diffSync <= 5){ syncHintEl.textContent = '✓ MATCHED!'; syncHintEl.style.color = 'var(--green)'; }
+    else if(syncVal < cfg.targetSync){ syncHintEl.textContent = 'หมุนเพิ่มอีก ►►'; syncHintEl.style.color = 'var(--amber)'; }
+    else { syncHintEl.textContent = '◄◄ หมุนลดลง'; syncHintEl.style.color = 'var(--amber)'; }
+
+    const phaseHintEl = document.getElementById('l3-phase-hint');
+    if(diffPhase <= 5){ phaseHintEl.textContent = '✓ MATCHED!'; phaseHintEl.style.color = 'var(--green)'; }
+    else if(phaseVal < cfg.targetPhase){ phaseHintEl.textContent = 'หมุนเพิ่มอีก ►►'; phaseHintEl.style.color = 'var(--amber)'; }
+    else { phaseHintEl.textContent = '◄◄ หมุนลดลง'; phaseHintEl.style.color = 'var(--amber)'; }
+
+    fireHold(document.getElementById('l3-hold-bar'), holdTime/cfg.reqHold);
+    document.getElementById('l3-timer').textContent = fmtTime(elapsed);
+    document.getElementById('l3-pass').textContent = `PASS ${passIndex+1}/${PASSES.length}`;
+  }
+
+  function runPassTransition(){
+    AudioEngine.playLock();
+    const overlay = document.getElementById('l3-pass-transition');
+    document.getElementById('l3-pass-transition-text').textContent = 
+      `LEVEL 3 :: PASS ${passIndex+1}/${PASSES.length} COMPLETED! — ถอดรหัสภาพสำเร็จ`;
+    overlay.style.display='flex';
+    setTimeout(()=>{
+      overlay.style.display='none'; passIndex++; holdTime = 0;
+      updateTargetBanner();
+      document.getElementById('l3-pass').textContent = `PASS ${passIndex+1}/${PASSES.length}`;
+      lastT = performance.now(); raf = requestAnimationFrame(loop);
+    }, 1500);
+  }
+
+  function drawGeospatialMap(clarity, locked, cfg){
+    const w=canvas.width, h=canvas.height;
+    ctx.clearRect(0,0,w,h);
+
+    if(activeBand === 'SAR'){
+      ctx.fillStyle = '#03070d'; ctx.fillRect(0,0,w,h);
+      ctx.fillStyle = '#0a1626'; ctx.beginPath();
+      ctx.moveTo(0, h*0.35); ctx.quadraticCurveTo(w*0.35, h*0.2, w*0.6, h*0.55);
+      ctx.quadraticCurveTo(w*0.8, h*0.85, w, h*0.75); ctx.lineTo(w, 0); ctx.lineTo(0, 0);
+      ctx.closePath(); ctx.fill();
+
+      const ships = [{x:w*0.42, y:h*0.72}, {x:w*0.78, y:h*0.52}];
+      ships.forEach((s, idx) => {
+        ctx.save(); ctx.shadowColor = '#39ff9c'; ctx.shadowBlur = 15;
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(s.x, s.y, 6, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+
+        if(locked && idx === 0){
+          ctx.strokeStyle = '#39ff9c'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(s.x, s.y, 20, 0, Math.PI*2); ctx.stroke();
+          ctx.fillStyle = '#39ff9c'; ctx.font = '10px Orbitron';
+          ctx.fillText('SAR TARGET: ILLEGAL VESSEL DETECTED', s.x + 24, s.y + 4);
+        }
+      });
+    } else if(activeBand === 'NDVI'){
+      ctx.fillStyle = '#0b1f14'; ctx.fillRect(0,0,w,h);
+      ctx.fillStyle = '#1e5229'; ctx.beginPath();
+      ctx.moveTo(0, h*0.35); ctx.quadraticCurveTo(w*0.35, h*0.2, w*0.6, h*0.55);
+      ctx.quadraticCurveTo(w*0.8, h*0.85, w, h*0.75); ctx.lineTo(w, 0); ctx.lineTo(0, 0);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = locked ? '#ff3b54' : '#ffb454';
+      ctx.beginPath(); ctx.arc(w*0.32, h*0.28, 26, 0, Math.PI*2); ctx.fill();
+      if(locked){
+        ctx.strokeStyle = '#ff3b54'; ctx.lineWidth = 2;
+        ctx.strokeRect(w*0.32 - 32, h*0.28 - 32, 64, 64);
+        ctx.fillStyle = '#ff3b54'; ctx.font = '10px Orbitron';
+        ctx.fillText('NDVI HOTSPOT: DEFORESTATION DETECTED', w*0.32 - 80, h*0.28 - 38);
+      }
+    } else {
+      ctx.fillStyle = '#0c1b2b'; ctx.fillRect(0,0,w,h);
+      ctx.fillStyle = '#1d3323'; ctx.beginPath();
+      ctx.moveTo(0, h*0.35); ctx.quadraticCurveTo(w*0.35, h*0.2, w*0.6, h*0.55);
+      ctx.quadraticCurveTo(w*0.8, h*0.85, w, h*0.75); ctx.lineTo(w, 0); ctx.lineTo(0, 0);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = '#4fd8ff'; ctx.fillRect(w*0.68, h*0.72, 10, 18);
+      if(locked && cfg.targetBand === 'RGB'){
+        ctx.strokeStyle = '#4fd8ff'; ctx.lineWidth = 2;
+        ctx.strokeRect(w*0.68 - 12, h*0.72 - 12, 34, 42);
+        ctx.fillStyle = '#4fd8ff'; ctx.font = '10px Orbitron';
+        ctx.fillText('OPTICAL RGB: LOGGING SHIP VISUAL CONFIRMED', w*0.68 - 90, h*0.72 - 18);
+      }
+    }
+
+    // Grid Overlay
+    ctx.strokeStyle = 'rgba(79,216,255,0.08)'; ctx.lineWidth = 1;
+    for(let x=0; x<w; x+=35){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+    for(let y=0; y<h; y+=35){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+
+    // Dynamic Noise Matrix based on Clarity
+    const noiseLevel = 1 - clarity;
+    if(noiseLevel > 0.05){
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+      const amount = Math.floor(noiseLevel * 22000);
+      for(let i=0; i<amount; i++){
+        const px = Math.floor(Math.random() * (data.length / 4)) * 4;
+        const val = Math.random() * 255;
+        data[px] = val; data[px+1] = val; data[px+2] = val;
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+  }
+
+  function complete(avgClarity){
+    if(mode==='tutorial'){ state.tutorialProgress.level3 = true; }
+    else { state.challengeProgress.level3 = true; }
+    showEvaluation({
+      missionTitle: 'LEVEL 3 :: ORTHO PRODUCT & GIS ANALYTICS',
+      align_eff: Math.min(1, avgClarity), snr_norm: 1, timeSec: elapsed, errors: Math.floor(errCount), levelId: 'level3'
+    });
+  }
+
+  return { init };
+})();
+
+/* ==================================================================
+   ACTIONABLE INTELLIGENCE POLICY (AIP) DASHBOARD
+   ================================================================== */
+function computeScore({align_eff, snr_norm, timeSec}){
+  const timeFactor = Math.max(0, 1 - timeSec/120);
+  return Math.max(0, Math.min(100, 100 * (0.4*align_eff + 0.4*snr_norm + 0.2*timeFactor)));
+}
+function gradeOf(score){
+  if(score>=90) return {grade:'S', rank:'Senior THEOS-2 Operations Commander'};
+  if(score>=80) return {grade:'A', rank:'Satellite Telemetry & AIP Engineer'};
+  if(score>=70) return {grade:'B', rank:'Ground Station Satellite Operator'};
+  return {grade:'C', rank:'Trainee Telemetry Operator'};
+}
+
+function getAIPRecommendation(levelId){
+  if(levelId === 'level1'){
+    return 'วิเคราะห์ข้อมูล Level 0 Raw Data ลุ่มน้ำชี-มูล พบพื้นที่เสี่ยงภัยน้ำท่วมหลากวิกฤต ➔ ข้อเสนอแนะเชิงนโยบาย: เสนอผู้ว่าราชการจังหวัดประกาศเขตบรรเทาสาธารณภัยด่วน พร้อมระดมเครื่องสูบน้ำพิกัด 16.2°N 103.5°E';
+  } else if(levelId === 'level2'){
+    return 'วิเคราะห์ข้อมูล Level 2A Restored Product พบความหนาแน่นฝุ่นควัน PM2.5 เกินค่ามาตรฐานวิกฤต จ.เชียงใหม่ ➔ ข้อเสนอแนะเชิงนโยบาย: เสนอผู้ว่าฯ ประกาศเขตควบคุมมลพิษด่วนที่สุด และส่งโดรนดับไฟป่าพิกัด Hotspot';
+  } else {
+    return 'วิเคราะห์ข้อมูล Level 3 Ortho Product (SAR Radar & NDVI) ยืนยันตำแหน่งเรือประมงรุกล้ำและเขตรุกป่า ➔ ข้อเสนอแนะเชิงนโยบาย: แจ้ง ศรชล. และกรมป่าไม้ ส่งกำลังเข้าสกัดกั้นจับกุมผู้กระทำผิดทันที';
+  }
+}
+
+function showEvaluation(data){
+  state.lastEval = data;
+  const score = computeScore(data);
+  const g = gradeOf(score);
+  
+  document.getElementById('ev-mission-title').textContent = data.missionTitle;
+  document.getElementById('ev-status').textContent = 'STATUS: PIPELINE VERIFIED';
+  document.getElementById('ev-grade').textContent = g.grade;
+  document.getElementById('ev-score').textContent = score.toFixed(1)+'%';
+  document.getElementById('ev-time').textContent = fmtTime(data.timeSec);
+  document.getElementById('ev-errors').textContent = data.errors;
+  document.getElementById('ev-rank').textContent = g.rank;
+  
+  document.getElementById('ev-aip-text').textContent = getAIPRecommendation(data.levelId);
+
+  const code = 'AIP-TH2-'+Math.floor(1000+Math.random()*9000)+'-'+g.grade;
+  document.getElementById('ev-vcode').textContent = code;
+  
+  document.getElementById('ev-retry-btn').onclick = ()=> { AudioEngine.playBeep(700); startLevel(data.levelId); };
+  document.getElementById('ev-menu-btn').onclick = ()=>{ AudioEngine.playBeep(500); showScreen('screen-level-select'); renderStations(); };
+  
+  showScreen('screen-evaluation');
+}
+</script>
+</body>
+</html>
