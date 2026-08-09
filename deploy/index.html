@@ -435,6 +435,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
         <div class="btn-row">
           <button class="btn" id="ev-retry-btn">เล่นซ้ำด่านนี้</button>
           <button class="btn primary" id="ev-menu-btn">กลับสู่เมนูหลัก</button>
+          <button class="btn" id="ev-save-csv">📥 Save CSV</button>
         </div>
       </div>
     </div>
@@ -1266,8 +1267,45 @@ function showEvaluation(data){
   
   document.getElementById('ev-retry-btn').onclick = ()=> { AudioEngine.playBeep(700); startLevel(data.levelId); };
   document.getElementById('ev-menu-btn').onclick = ()=>{ AudioEngine.playBeep(500); showScreen('screen-level-select'); renderStations(); };
+  document.getElementById('ev-save-csv').onclick = ()=> { AudioEngine.playBeep(600); exportCSV(data, score, g, code); };
   
   showScreen('screen-evaluation');
+}
+
+function exportCSV(data, score, g, code){
+  const studentName = (window.prompt('กรุณากรอกชื่อ-สกุล เพื่อบันทึกผล:', '') || '').trim();
+  if(!studentName){ alert('ไม่ได้กรอกชื่อ ยกเลิกการบันทึก'); return; }
+
+  const rows = [
+    ['StudentName','Mission','LevelId','Grade','Score(%)','Time(s)','Errors','Rank','VerificationCode','Date'],
+    [
+      studentName,
+      data.missionTitle || '',
+      data.levelId || '',
+      g.grade,
+      score.toFixed(1),
+      data.timeSec,
+      data.errors,
+      g.rank,
+      code,
+      new Date().toISOString()
+    ]
+  ];
+
+  const csv = rows.map(r =>
+    r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')
+  ).join('\r\n');
+
+  const safeName = studentName.replace(/[^a-zA-Zก-๙0-9]+/g,'_').slice(0,40);
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `AIP_${safeName}_${data.levelId || 'level'}_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 </script>
 </body>
